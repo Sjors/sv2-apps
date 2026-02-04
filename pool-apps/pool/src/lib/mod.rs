@@ -58,8 +58,17 @@ impl PoolSv2 {
             .expect("Invalid coinbase output in config");
 
         let notify_shutdown = self.notify_shutdown.clone();
+        let mut shutdown_rx = notify_shutdown.subscribe();
 
         let task_manager = Arc::new(TaskManager::new());
+
+        let notify_shutdown_on_signal = notify_shutdown.clone();
+        task_manager.spawn(async move {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                info!("Ctrl+C received — initiating graceful shutdown...");
+                let _ = notify_shutdown_on_signal.send(ShutdownMessage::ShutdownAll);
+            }
+        });
 
         let (status_sender, status_receiver) = unbounded();
 
@@ -214,10 +223,11 @@ impl PoolSv2 {
         info!("Spawning status listener task...");
         loop {
             tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    info!("Ctrl+C received — initiating graceful shutdown...");
-                    let _ = notify_shutdown.send(ShutdownMessage::ShutdownAll);
-                    break;
+                message = shutdown_rx.recv() => {
+                    if let Ok(ShutdownMessage::ShutdownAll) = message {
+                        info!("ShutdownAll received — exiting status loop...");
+                        break;
+                    }
                 }
                 message = status_receiver.recv() => {
                     if let Ok(status) = message {

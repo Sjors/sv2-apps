@@ -7,6 +7,7 @@ use stratum_core::bitcoin::{
 #[derive(Debug)]
 pub enum BitcoinCoreSv2Error {
     CapnpError(capnp::Error),
+    Cancelled,
     CannotConnectToUnixSocket(Box<Path>, String),
     InvalidTemplateHeader(consensus::encode::Error),
     InvalidTemplateHeaderLength,
@@ -23,6 +24,7 @@ pub enum BitcoinCoreSv2Error {
     FailedToSubmitSolution,
     FailedToSetThread,
     FailedToGetWaitNextRequestOptions,
+    FailedToSendInterruptMiningRequest,
     FailedToSendInterruptWaitRequest,
     FailedToWaitForMonitorIpcTemplatesTask,
 }

@@ -1,0 +1,24 @@
+[package]
+name = "bitcoin-capnp-types"
+version = "0.1.0"
+edition = "2024"
+authors = ["Rob <rob@2140.dev>"]
+license = "CC0-1.0"
+description = "Auto-generated types according to Bitcoin Core Cap'n Proto schemas"
+repository = "https://github.com/2140-dev/bitcoin-capnp-types.git"
+readme = "README.md"
+keywords = ["bitcoin"]
+categories = ["cryptography::cryptocurrencies"]
+rust-version = "1.85.0"
+
+[dependencies]
+capnp = "0.21"
+
+[build-dependencies]
+capnpc = "0.21"
+
+[dev-dependencies]
+capnp-rpc = "0.21"
+futures = "0.3.0"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util"] }
+tokio-util = { version = "0.7.16", features = ["compat"] }

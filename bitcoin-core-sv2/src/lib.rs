@@ -98,7 +98,7 @@ use bitcoin_capnp_types::{
     },
     proxy_capnp::{thread::Client as ThreadIpcClient, thread_map::Client as ThreadMapIpcClient},
 };
-use capnp::capability::Request;
+use capnp::{any_pointer, capability::Request};
 use capnp_rpc::{RpcSystem, rpc_twoparty_capnp, twoparty};
 use error::BitcoinCoreSv2Error;
 use std::{
@@ -114,6 +114,7 @@ use stratum_core::{
     bitcoin::{Transaction, block::Header, consensus::deserialize},
     parsers_sv2::TemplateDistribution,
 };
+use bitcoin_capnp_types::mining_capnp::mining as mining_capnp;
 
 use std::sync::RwLock;
 use tokio::{net::UnixStream, task::JoinHandle};
@@ -302,6 +303,10 @@ impl BitcoinCoreSv2 {
                                     tracing::debug!("Successfully created initial template IPC client");
                                     template_ipc_client
                                 },
+                                Err(BitcoinCoreSv2Error::Cancelled) => {
+                                    tracing::warn!("Initial createNewBlock interrupted; shutting down");
+                                    return;
+                                }
                                 Err(e) => {
                                     tracing::error!("Failed to create new template IPC client: {:?}", e);
                                     tracing::warn!("Terminating Sv2 Bitcoin Core IPC Connection");
@@ -584,6 +589,10 @@ impl BitcoinCoreSv2 {
         );
 
         let mut template_ipc_client_request = self.mining_ipc_client.create_new_block_request();
+        template_ipc_client_request
+            .get()
+            .get_context()?
+            .set_thread(self.thread_ipc_client.clone());
         let mut template_ipc_client_request_options = template_ipc_client_request
             .get()
             .get_options()
@@ -601,15 +610,23 @@ impl BitcoinCoreSv2 {
         );
         template_ipc_client_request_options.set_use_mempool(true);
 
+        template_ipc_client_request.get().set_cooldown(true);
+
         tracing::debug!("Sending createNewBlock request to Bitcoin Core");
-        let template_ipc_client_response = template_ipc_client_request
-            .send()
-            .promise
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to send template IPC client request: {}", e);
-                e
-            })?;
+        let template_ipc_client_response = tokio::select! {
+            _ = self.global_cancellation_token.cancelled() => {
+                tracing::debug!("Cancellation requested; interrupting createNewBlock");
+                if let Err(e) = self.interrupt_mining_request().await {
+                    return Err(e);
+                }
+                return Err(BitcoinCoreSv2Error::Cancelled);
+            }
+            response = template_ipc_client_request.send().promise => response,
+        }
+        .map_err(|e| {
+            tracing::error!("Failed to send template IPC client request: {}", e);
+            e
+        })?;
 
         let template_ipc_client_result = template_ipc_client_response.get().map_err(|e| {
             tracing::error!("Failed to get template IPC client result: {}", e);
@@ -637,6 +654,20 @@ impl BitcoinCoreSv2 {
         if let Err(e) = interrupt_wait_request.send().promise.await {
             tracing::error!("Failed to send interrupt wait request: {}", e);
             return Err(BitcoinCoreSv2Error::FailedToSendInterruptWaitRequest);
+        }
+
+        Ok(())
+    }
+
+    async fn interrupt_mining_request(&self) -> Result<(), BitcoinCoreSv2Error> {
+        let interrupt_request: Request<any_pointer::Owned, any_pointer::Owned> =
+            self.mining_ipc_client
+                .client
+                .new_call(mining_capnp::_private::TYPE_ID, 6, None);
+
+        if let Err(e) = interrupt_request.send().promise.await {
+            tracing::error!("Failed to send mining interrupt request: {}", e);
+            return Err(BitcoinCoreSv2Error::FailedToSendInterruptMiningRequest);
         }
 
         Ok(())

@@ -21,4 +21,4 @@ async-channel = "1.5.1"
 stratum-core = { version = "0.2.0" }
 
 # todo: point to crates.io (whenever it's available there)
-bitcoin-capnp-types = { git = "https://github.com/2140-dev/bitcoin-capnp-types", rev = "77a609a0058478d6c8aad24351b6baeb3e0555fc" }
+bitcoin-capnp-types = { path = "../bitcoin-capnp-types" }
